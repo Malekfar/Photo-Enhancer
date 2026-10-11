@@ -9,11 +9,12 @@ import numpy as np
 
 from app.pipeline.adjust import apply_strength, auto_exposure, pre_exposure, unsharp_mask
 from app.pipeline.color import fast_median, luminance, subsample, value_channel
-from app.pipeline.denoise import Denoiser, estimate_noise_sigma, should_denoise
+from app.pipeline.denoise import Denoiser, estimate_noise_sigma, should_denoise, suppress_amplified_chroma
 from app.pipeline.enhance import Enhancer
 from app.pipeline.highlight import (
     blend_highlights,
     clipped_fraction,
+    deep_shadow_mask,
     guard_highlights,
     highlight_mask,
     luminance_gain_transfer,
@@ -63,6 +64,15 @@ class PipelineConfig:
     ae_white_target: float | None = 0.93
     ae_bg_min_fraction: float = 0.2
     ae_white_max_input: float = 0.7  # only for low-light input: original p99 of max(R,G,B) below this
+    shadow_protect: bool = True
+    shadow_max_level: float = 0.08
+    shadow_rel_level: float = 0.3
+    shadow_min_area: float = 0.10
+    shadow_max_texture: float = 0.0035
+    chroma_suppress: bool = True
+    chroma_gain_low: float = 2.0
+    chroma_gain_high: float = 5.0
+    chroma_radius: int = 8
 
     def pre_gain_target(self, enhancer: Enhancer) -> float | None:
         if enhancer.checkpoint and enhancer.checkpoint in self.pre_gain_targets:
@@ -134,10 +144,24 @@ def run_pipeline(
             "noise_sigma": round(sigma, 5),
             "projected_noise": round(projected, 5),
         }
+        if cfg.shadow_protect:
+            shadow = deep_shadow_mask(
+                y0,
+                max_level=cfg.shadow_max_level,
+                rel_level=cfg.shadow_rel_level,
+                min_area=cfg.shadow_min_area,
+                max_texture=cfg.shadow_max_texture,
+                radius=cfg.mask_radius,
+                eps=cfg.mask_eps,
+            )
+        else:
+            shadow = np.zeros_like(y0)
 
     # 2. exposure pre-normalisation (very dark input -> model's trained brightness range)
     with timer("pre_exposure"):
-        model_input, pre_info = pre_exposure(base, cfg.pre_gain_target(enhancer), cfg.pre_gain_max, cfg.knee)
+        model_input, pre_info = pre_exposure(
+            base, cfg.pre_gain_target(enhancer), cfg.pre_gain_max, cfg.knee, exclude=shadow
+        )
         info["pre_exposure"] = pre_info
 
     # 3. enhance
@@ -153,9 +177,11 @@ def run_pipeline(
         enhanced, white = soft_knee(enhanced, cfg.knee)
         mask = highlight_mask(y0, params.highlight_low, params.highlight_high, cfg.mask_radius, cfg.mask_eps)
         out = blend_highlights(base, enhanced, mask)
+        out = blend_highlights(base, out, shadow)  # keep intentional blacks (night sky) black
         info["highlight"] = {
             "enhanced_white_point": round(white, 4),
             "protected_pct": round(float(np.mean(mask > 0.5)) * 100.0, 3),
+            "shadow_protected_pct": round(float(np.mean(shadow > 0.5)) * 100.0, 3),
         }
 
     # 5. final adjustments
@@ -167,18 +193,25 @@ def run_pipeline(
                 white_target = cfg.ae_white_target
         out, ae_info = auto_exposure(
             out,
-            mask,
+            np.maximum(mask, shadow),
             cfg.ae_target_low,
             cfg.ae_target_high,
             cfg.ae_max_gain,
             cfg.ae_allow_darken,
             white_target=white_target,
             bg_min_fraction=cfg.ae_bg_min_fraction,
+            exclude=shadow,
         )
         info["auto_exposure"] = {k: round(v, 4) for k, v in ae_info.items()}
         if params.sharpen:
             out = unsharp_mask(out, cfg.sharpen_amount, cfg.sharpen_sigma)
         out = apply_strength(original, out, params.strength)
+        if cfg.chroma_suppress:
+            radius = max(cfg.chroma_radius, round(max(out.shape[:2]) / 128))
+            out, chroma_pct = suppress_amplified_chroma(
+                base, out, gain_low=cfg.chroma_gain_low, gain_high=cfg.chroma_gain_high, radius=radius, eps=1e-3
+            )
+            info["chroma_suppress"] = {"affected_pct": round(chroma_pct * 100.0, 3), "radius": radius}
 
     # 6. guard: soft roll-off (no hard clip) under the clipped-pixel budget
     with timer("guard"):

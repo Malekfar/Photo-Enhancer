@@ -1,6 +1,7 @@
 """Highlight protection: smooth highlight mask, blending, soft-knee roll-off, clip guard."""
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 from app.pipeline.color import CLIP_LEVEL, guided_filter, luminance, smoothstep, subsample, value_channel
@@ -9,6 +10,54 @@ from app.pipeline.color import CLIP_LEVEL, guided_filter, luminance, smoothstep,
 def highlight_mask(y_orig: np.ndarray, t_low: float, t_high: float, radius: int, eps: float) -> np.ndarray:
     """m = smoothstep(t_low, t_high, Y), smoothed edge-aware with Y as the guide."""
     m = smoothstep(t_low, t_high, y_orig)
+    return np.clip(guided_filter(y_orig, m, radius, eps), 0.0, 1.0)
+
+
+def deep_shadow_mask(
+    y_orig: np.ndarray,
+    *,
+    max_level: float,
+    rel_level: float,
+    min_area: float,
+    radius: int,
+    eps: float,
+    max_texture: float = 0.0035,
+) -> np.ndarray:
+    """Soft mask of intentionally black regions (night sky, black backdrop) to keep as-is.
+
+    Candidates are flat pixels much darker than the scene content:
+    Y < min(max_level, rel_level * median(content)). A connected candidate region is
+    protected only if it alone covers `min_area` of the frame and its mean texture is below
+    `max_texture`. In a uniformly underexposed photo the dark areas are not darker than the
+    content, so nothing is protected there.
+    """
+    h, w = y_orig.shape
+    s = min(1.0, 512.0 / max(h, w))
+    small = cv2.resize(y_orig, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA)
+    texture = np.abs(small - cv2.GaussianBlur(small, (0, 0), 2.0))
+    texture = cv2.GaussianBlur(texture, (0, 0), 2.0)
+    flat_dark = (texture < 0.012) & (small < max_level)
+    content = small[~flat_dark]
+    if content.size < 0.05 * small.size:
+        return np.zeros_like(y_orig)
+    thr = min(max_level, rel_level * float(np.median(content)))
+    cand = ((small < thr) & (texture < 0.012)).astype(np.uint8)
+    cand = cv2.morphologyEx(cand, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    # Region-level decision: only a single large, almost texture-free region counts (a sky
+    # or backdrop). Scattered dark patches of real surfaces (dark wood, shadows) must not be
+    # protected piecewise, or they turn into black blotches.
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(cand, connectivity=8)
+    m = np.zeros_like(cand)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] < min_area * cand.size:
+            continue
+        region = labels == i
+        if float(texture[region].mean()) < max_texture:
+            m[region] = 1
+    if not m.any():
+        return np.zeros_like(y_orig)
+    m = cv2.GaussianBlur(m.astype(np.float32), (0, 0), 1.5)
+    m = cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR)
     return np.clip(guided_filter(y_orig, m, radius, eps), 0.0, 1.0)
 
 

@@ -3,149 +3,228 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Low-light enhancer — review</title>
+<title>Low-light Photo Enhancer</title>
 <style>
-  :root { font-family: system-ui, sans-serif; color: #1d1d1f; background: #f4f4f6; }
-  body { margin: 0; padding: 24px; }
-  h1 { font-size: 20px; margin: 0 0 16px; }
-  form { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; background: #fff; padding: 16px; border-radius: 10px; }
-  label { display: flex; flex-direction: column; font-size: 12px; gap: 4px; color: #555; }
-  input, select, button { font: inherit; font-size: 14px; }
-  button { grid-column: 1 / -1; padding: 10px; border: 0; border-radius: 8px; background: #1d1d1f; color: #fff; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: progress; }
-  #status { margin: 12px 0; font-size: 14px; min-height: 20px; }
-  #status.error { color: #b00020; }
-  .compare { position: relative; max-width: 100%; display: inline-block; user-select: none; background: repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 20px 20px; }
-  .compare img { display: block; max-width: 100%; max-height: 75vh; }
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #16181d; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #4f46e5; --accent-2: #7c3aed; --ok: #059669; --err: #dc2626; --radius: 16px;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text); background: var(--bg);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e0f13; --card: #171920; --text: #eceef3; --muted: #9aa1ad; --line: #2a2d36; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 32px 16px 48px; }
+  header { text-align: center; margin-bottom: 24px; max-width: 720px; }
+  header h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.02em; }
+  header h1 span { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header p { margin: 0; color: var(--muted); font-size: 15px; }
+  main { width: 100%; max-width: 1100px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.04); }
+
+  /* upload */
+  #drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 340px; padding: 32px;
+          border: 2px dashed var(--line); cursor: pointer; transition: border-color .15s, background .15s; text-align: center; }
+  #drop:hover, #drop:focus-visible, #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--card)); outline: none; }
+  #drop svg { width: 56px; height: 56px; color: var(--accent); }
+  #drop strong { font-size: 18px; }
+  #drop small { color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 10px; padding: 10px 18px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; transition: transform .05s, opacity .15s; }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #fff; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .btn svg { width: 16px; height: 16px; }
+
+  /* processing */
+  #busy { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 32px; }
+  #busy .thumb { position: relative; max-width: 100%; border-radius: 12px; overflow: hidden; }
+  #busy .thumb img { display: block; max-width: 100%; max-height: 50vh; filter: blur(2px) brightness(.8); }
+  #busy .thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+  .spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #busy .row { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+
+  /* result */
+  #result { display: none; padding: 16px; }
+  .compare { position: relative; margin: 0 auto; width: fit-content; max-width: 100%; border-radius: 12px; overflow: hidden; user-select: none; touch-action: none; cursor: ew-resize;
+             background: repeating-conic-gradient(#ccc 0% 25%, #eee 0% 50%) 50% / 16px 16px; }
+  .compare img { display: block; max-width: 100%; max-height: 72vh; pointer-events: none; }
   .compare .after { position: absolute; inset: 0; width: 100%; height: 100%; clip-path: inset(0 0 0 50%); }
-  .compare .bar { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: #fff; box-shadow: 0 0 3px #000; pointer-events: none; }
-  .compare .tag { position: absolute; top: 8px; padding: 2px 8px; font-size: 12px; background: rgba(0,0,0,.6); color: #fff; border-radius: 4px; }
-  #slider { width: 100%; max-width: 100%; margin-top: 8px; }
-  table { border-collapse: collapse; background: #fff; margin-top: 16px; font-size: 13px; }
-  td, th { border: 1px solid #ddd; padding: 4px 10px; text-align: right; }
-  th:first-child, td:first-child { text-align: left; }
-  #viewer { display: none; margin-top: 16px; }
-  a#download { margin-left: 12px; font-size: 14px; }
+  .compare .line { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 6px rgba(0,0,0,.5); pointer-events: none; }
+  .compare .knob { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.35);
+                   display: grid; place-items: center; pointer-events: none; color: #111; }
+  .compare .knob svg { width: 22px; height: 22px; }
+  .compare .tag { position: absolute; top: 12px; padding: 4px 10px; font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; background: rgba(0,0,0,.55); color: #fff; border-radius: 999px; pointer-events: none; backdrop-filter: blur(4px); }
+  .compare input[type=range] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: ew-resize; margin: 0; }
+  .compare input[type=range]:focus-visible ~ .knob { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .hint { text-align: center; color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { font-size: 13px; padding: 6px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 9%, var(--card)); border: 1px solid var(--line); }
+  .chip b { font-weight: 600; }
+  .actions { display: flex; gap: 8px; }
+  details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  table { border-collapse: collapse; margin-top: 12px; font-size: 13px; width: 100%; max-width: 560px; }
+  td, th { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; color: var(--muted); font-weight: 500; }
+
+  #error { display: none; margin-top: 16px; padding: 12px 16px; border-radius: 12px; color: var(--err); background: color-mix(in srgb, var(--err) 8%, var(--card)); border: 1px solid color-mix(in srgb, var(--err) 30%, var(--line)); }
+  footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
+  footer a { color: inherit; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
 <body>
-<h1>Low-light product photo enhancer</h1>
-<form id="form">
-  <label>Image (JPEG/PNG/WebP)<input type="file" name="file" accept="image/jpeg,image/png,image/webp" required></label>
-  <label>Method
-    <select name="method" id="method">
-      <option value="auto">auto (recommended)</option>
-      <option value="retinexformer">retinexformer</option>
-      <option value="zerodce">zerodce</option>
-      <option value="classical">classical</option>
-    </select>
-  </label>
-  <label>Checkpoint (retinexformer)<select name="checkpoint" id="checkpoint"><option value="">default</option></select></label>
-  <label>Strength <span id="strengthv">auto</span>
-    <span><input type="checkbox" id="strengthauto" checked> auto</span>
-    <input type="range" name="strength" min="0" max="1" step="0.05" value="1" disabled></label>
-  <label>Denoise
-    <select name="denoise"><option value="">server default</option><option>auto</option><option>on</option><option>off</option></select>
-  </label>
-  <label>Highlight low<input type="number" name="highlight_low" min="0" max="1" step="0.01" placeholder="0.60"></label>
-  <label>Highlight high<input type="number" name="highlight_high" min="0" max="1" step="0.01" placeholder="0.90"></label>
-  <label>Preserve color
-    <select name="preserve_color"><option value="">auto</option><option value="true">true</option><option value="false">false</option></select>
-  </label>
-  <label>Sharpen
-    <select name="sharpen"><option value="">server default</option><option value="true">true</option><option value="false">false</option></select>
-  </label>
-  <label>Output format
-    <select name="output_format"><option value="">server default</option><option>jpeg</option><option>png</option><option>webp</option></select>
-  </label>
-  <label>IQA metrics (slower)
-    <select name="iqa"><option value="">server default</option><option value="true">true</option><option value="false">false</option></select>
-  </label>
-  <button id="go" type="submit">Enhance</button>
-</form>
-<div id="status"></div>
-<div id="viewer">
-  <div class="compare" id="compare">
-    <img id="before" alt="before">
-    <img id="after" class="after" alt="after">
-    <div class="bar" id="bar"></div>
-    <span class="tag" style="left:8px">before</span>
-    <span class="tag" style="right:8px">after</span>
+<header>
+  <h1>Low-light <span>Photo Enhancer</span></h1>
+  <p>Drop a dark photo — exposure, color, noise and highlights are handled automatically.</p>
+</header>
+
+<main>
+  <div id="drop" class="card" tabindex="0" role="button" aria-label="Choose an image to enhance">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/>
+    </svg>
+    <strong>Drop an image here</strong>
+    <small>or click to browse · paste with Ctrl/⌘+V · JPEG, PNG, WebP</small>
+    <span class="btn primary">Choose image</span>
+    <input type="file" id="file" class="sr-only" accept="image/jpeg,image/png,image/webp">
   </div>
-  <input type="range" id="slider" min="0" max="100" value="50">
-  <div><a id="download" download>download result</a></div>
-  <table id="metrics"></table>
-</div>
+
+  <div id="busy" class="card" aria-live="polite">
+    <div class="thumb"><img id="busyimg" alt=""></div>
+    <div class="row"><div class="spinner"></div><span>Enhancing… <span id="elapsed">0.0</span> s</span></div>
+  </div>
+
+  <div id="result" class="card">
+    <div class="compare" id="compare">
+      <img id="before" alt="Original">
+      <img id="after" class="after" alt="Enhanced">
+      <div class="line" id="line"></div>
+      <span class="tag" style="left:12px">Before</span>
+      <span class="tag" style="right:12px">After</span>
+      <input type="range" id="slider" min="0" max="100" step="0.1" value="50" aria-label="Before / after position">
+      <div class="knob" id="knob">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l-6 6 6 6M15 6l6 6-6 6"/></svg>
+      </div>
+    </div>
+    <p class="hint">Drag across the image to compare · double-click to toggle</p>
+
+    <div class="bar">
+      <div class="chips" id="chips"></div>
+      <div class="actions">
+        <button class="btn ghost" id="again" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          Enhance another
+        </button>
+        <a class="btn primary" id="download" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+          Download
+        </a>
+      </div>
+    </div>
+
+    <details>
+      <summary>Technical details</summary>
+      <table id="metrics"></table>
+    </details>
+  </div>
+
+  <div id="error" role="alert"></div>
+</main>
+
+<footer>API docs at <a href="/docs">/docs</a></footer>
+
 <script>
 const $ = (id) => document.getElementById(id);
-const form = $("form");
-form.strength.addEventListener("input", (e) => $("strengthv").textContent = Number(e.target.value).toFixed(2));
-$("strengthauto").addEventListener("change", (e) => {
-  form.strength.disabled = e.target.checked;
-  $("strengthv").textContent = e.target.checked ? "auto" : Number(form.strength.value).toFixed(2);
-});
+const show = (id) => ["drop", "busy", "result"].forEach(x => $(x).style.display = x === id ? (x === "busy" || x === "drop" ? "flex" : "block") : "none");
+const fmt = (v) => v === null || v === undefined ? "—" : (typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(3)) : v);
+const ACCEPT = ["image/jpeg", "image/png", "image/webp"];
+let urls = [];
 
-fetch("/v1/models").then(r => r.json()).then(m => {
-  const rf = (m.enhancers || {}).retinexformer;
-  if (rf) for (const c of rf.checkpoints) $("checkpoint").add(new Option(c, c));
-  for (const opt of $("method").options) {
-    if (opt.value && opt.value !== "auto" && !(opt.value in (m.enhancers || {}))) { opt.disabled = true; opt.textContent += " (not loaded)"; }
-  }
-}).catch(() => {});
-
-const setSplit = (v) => {
+function setError(msg) { $("error").textContent = msg || ""; $("error").style.display = msg ? "block" : "none"; }
+function setSplit(v) {
   $("after").style.clipPath = `inset(0 0 0 ${v}%)`;
-  $("bar").style.left = `${v}%`;
-};
-$("slider").addEventListener("input", (e) => setSplit(e.target.value));
-$("compare").addEventListener("pointermove", (e) => {
-  if (e.buttons !== 1) return;
-  const r = e.currentTarget.getBoundingClientRect();
-  const v = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
-  $("slider").value = v; setSplit(v);
+  $("line").style.left = $("knob").style.left = `${v}%`;
+}
+
+$("drop").addEventListener("click", () => $("file").click());
+$("drop").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+$("file").addEventListener("change", () => { if ($("file").files[0]) enhance($("file").files[0]); $("file").value = ""; });
+["dragenter", "dragover"].forEach(t => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach(t => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) enhance(f); });
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f && $("busy").style.display !== "flex") enhance(f); });
+document.addEventListener("paste", (e) => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.kind === "file");
+  if (item && $("busy").style.display !== "flex") enhance(item.getAsFile());
 });
 
-const fmt = (v) => v === null || v === undefined ? "—" : (typeof v === "number" ? v.toFixed(4) : v);
+$("slider").addEventListener("input", (e) => setSplit(e.target.value));
+$("compare").addEventListener("dblclick", () => { const v = Number($("slider").value) > 50 ? 0 : 100; $("slider").value = v; setSplit(v); });
+$("again").addEventListener("click", () => { setError(""); show("drop"); $("drop").focus(); });
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const fd = new FormData();
-  for (const [k, v] of new FormData(form).entries()) {
-    if (k === "file" || v !== "") fd.append(k, v);
-  }
-  if (["zerodce", "classical"].includes($("method").value)) fd.delete("checkpoint");
-  $("go").disabled = true;
-  $("status").className = ""; $("status").textContent = "processing…";
+async function enhance(file) {
+  setError("");
+  if (!ACCEPT.includes(file.type)) { setError("Please choose a JPEG, PNG or WebP image."); return; }
+  urls.forEach(URL.revokeObjectURL); urls = [];
+  const src = URL.createObjectURL(file); urls.push(src);
+  $("busyimg").src = src;
+  show("busy");
   const t0 = performance.now();
+  const timer = setInterval(() => $("elapsed").textContent = ((performance.now() - t0) / 1000).toFixed(1), 100);
+  const fd = new FormData();
+  fd.append("file", file, file.name || "pasted.png");
   try {
     const res = await fetch("/v1/enhance/json", { method: "POST", body: fd });
-    const body = await res.json();
-    if (!res.ok) throw new Error(`${body.error?.code}: ${body.error?.message}`);
-    const file = form.file.files[0];
-    $("before").src = URL.createObjectURL(file);
-    const url = `data:${body.media_type};base64,${body.image_base64}`;
-    $("after").src = url;
-    $("download").href = url;
-    $("download").download = file.name.replace(/\.[^.]+$/, "") + "_enhanced." + body.media_type.split("/")[1].replace("jpeg", "jpg");
-    const b = body.metrics.before, a = body.metrics.after;
-    const keys = Object.keys(a).filter(k => !k.endsWith("_error"));
-    $("metrics").innerHTML = "<tr><th>metric</th><th>before</th><th>after</th></tr>" +
-      keys.map(k => `<tr><td>${k}</td><td>${fmt(b[k])}</td><td>${fmt(a[k])}</td></tr>`).join("") +
-      `<tr><td>method</td><td colspan="2">${body.pipeline.enhancer.method} ${body.pipeline.enhancer.checkpoint || ""} (${body.pipeline.enhancer.mode})${body.pipeline.auto ? " — auto-selected" : ""}</td></tr>` +
-      `<tr><td>strength</td><td colspan="2">${fmt(body.pipeline.resolved?.strength)}${body.pipeline.auto?.strength ? " — auto-selected" : ""}</td></tr>` +
-      `<tr><td>preserve color</td><td colspan="2">${body.pipeline.resolved?.preserve_color ?? "—"}</td></tr>` +
-      `<tr><td>pre-exposure gain</td><td colspan="2">${fmt(body.pipeline.pre_exposure?.gain)}</td></tr>` +
-      `<tr><td>denoise</td><td colspan="2">${body.pipeline.denoise.applied ? body.pipeline.denoise.backend : "skipped"} (σ=${fmt(body.pipeline.denoise.noise_sigma)})</td></tr>` +
-      `<tr><td>server time (ms)</td><td colspan="2">${body.timings_ms.total}</td></tr>`;
-    $("viewer").style.display = "block";
-    setSplit($("slider").value);
-    $("status").textContent = `done in ${((performance.now() - t0) / 1000).toFixed(1)} s — ${body.width}×${body.height}`;
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error?.message || `Server error (${res.status})`);
+    const out = `data:${body.media_type};base64,${body.image_base64}`;
+    await new Promise((ok) => { $("after").onload = ok; $("after").src = out; });
+    $("before").src = src;
+    const ext = body.media_type.split("/")[1].replace("jpeg", "jpg");
+    $("download").href = out;
+    $("download").download = (file.name || "image").replace(/\.[^.]+$/, "") + "_enhanced." + ext;
+    render(body, (performance.now() - t0) / 1000);
+    $("slider").value = 50; setSplit(50);
+    show("result");
   } catch (err) {
-    $("status").className = "error"; $("status").textContent = err.message;
+    show("drop");
+    setError(err.message === "Failed to fetch" ? "Could not reach the server. Is it still running?" : err.message);
   } finally {
-    $("go").disabled = false;
+    clearInterval(timer);
   }
-});
+}
+
+function render(body, seconds) {
+  const p = body.pipeline, r = p.resolved || {};
+  const names = { retinexformer: "Retinexformer", zerodce: "Zero-DCE++", classical: "Classical" };
+  const model = names[r.method] || r.method;
+  const ck = r.checkpoint ? ` · ${r.checkpoint.replace("retinexformer_", "").replace("_", " ")}` : "";
+  $("chips").innerHTML = [
+    `<span class="chip">Model <b>${model}${ck}</b></span>`,
+    `<span class="chip">Strength <b>${Math.round((r.strength ?? 1) * 100)}%</b></span>`,
+    p.denoise?.applied ? `<span class="chip">Denoised</span>` : "",
+    p.highlight?.shadow_protected_pct > 0 ? `<span class="chip">Blacks kept</span>` : "",
+    `<span class="chip"><b>${body.width}×${body.height}</b></span>`,
+    `<span class="chip"><b>${seconds.toFixed(1)} s</b></span>`,
+  ].join("");
+  const b = body.metrics.before, a = body.metrics.after;
+  const keys = Object.keys(a).filter(k => !k.endsWith("_error"));
+  $("metrics").innerHTML = "<tr><th>Metric</th><th>Before</th><th>After</th></tr>" +
+    keys.map(k => `<tr><td>${k.replace(/_/g, " ")}</td><td>${fmt(b[k])}</td><td>${fmt(a[k])}</td></tr>`).join("") +
+    `<tr><td>preserve color</td><td colspan="2">${fmt(r.preserve_color)}</td></tr>` +
+    `<tr><td>pre-exposure gain</td><td colspan="2">${fmt(p.pre_exposure?.gain)}</td></tr>` +
+    `<tr><td>auto-exposure gain</td><td colspan="2">${fmt(p.auto_exposure?.gain)}</td></tr>` +
+    `<tr><td>noise σ</td><td colspan="2">${fmt(p.denoise?.noise_sigma)}</td></tr>` +
+    `<tr><td>server time (ms)</td><td colspan="2">${fmt(body.timings_ms.total)}</td></tr>`;
+}
+
+show("drop");
 </script>
 </body>
 </html>

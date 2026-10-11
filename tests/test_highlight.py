@@ -6,6 +6,7 @@ from app.pipeline.color import luminance, smoothstep
 from app.pipeline.highlight import (
     blend_highlights,
     clipped_fraction,
+    deep_shadow_mask,
     guard_highlights,
     highlight_mask,
     luminance_gain_transfer,
@@ -108,6 +109,37 @@ def test_luminance_gain_is_capped():
     enhanced = np.full((4, 4, 3), 1.0, dtype=np.float32)
     out = luminance_gain_transfer(base, enhanced, max_gain=4.0)
     np.testing.assert_allclose(out, 0.2, atol=1e-5)
+
+
+def _night_scene() -> np.ndarray:
+    rng = np.random.default_rng(5)
+    y = np.full((200, 300), 0.01, dtype=np.float32)  # black sky (top 40%)
+    y[80:] = 0.15 + 0.2 * rng.random((120, 300))  # textured, lit content
+    return y
+
+
+def test_deep_shadow_mask_protects_night_sky():
+    y = _night_scene()
+    m = deep_shadow_mask(y, max_level=0.08, rel_level=0.3, min_area=0.03, radius=8, eps=1e-3)
+    assert m[:60].mean() > 0.9
+    assert m[100:].mean() < 0.05
+
+
+def test_deep_shadow_mask_ignores_scattered_dark_patches():
+    rng = np.random.default_rng(7)
+    y = (0.2 + 0.2 * rng.random((200, 300))).astype(np.float32)
+    for r0, c0 in [(10, 10), (10, 150), (120, 40), (120, 200), (60, 100)]:
+        y[r0 : r0 + 30, c0 : c0 + 40] = 0.02  # dark patches, each ~2% of the frame
+    m = deep_shadow_mask(y, max_level=0.08, rel_level=0.3, min_area=0.10, radius=8, eps=1e-3)
+    assert m.max() < 0.05
+
+
+def test_deep_shadow_mask_ignores_uniformly_underexposed_image():
+    rng = np.random.default_rng(6)
+    y = (0.01 + 0.02 * rng.random((200, 300))).astype(np.float32)
+    y[:80] = 0.012  # flat, but not darker than the (equally dark) content
+    m = deep_shadow_mask(y, max_level=0.08, rel_level=0.3, min_area=0.03, radius=8, eps=1e-3)
+    assert m.mean() < 0.05
 
 
 def test_luminance_gain_transfer_keeps_near_black_colored_not_gray():

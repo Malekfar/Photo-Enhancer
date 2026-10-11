@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     ae_white_target: float | None = Field(0.93, gt=0.0, le=1.0, description="seamless background level; null disables")
     ae_bg_min_fraction: float = Field(0.2, gt=0.0, le=1.0)
     ae_white_max_input: float = Field(0.7, gt=0.0, le=1.0)
+    shadow_protect: bool = True  # keep intentional blacks (night sky, black backdrop) black
+    shadow_max_level: float = Field(0.08, gt=0.0, le=0.5)
+    shadow_rel_level: float = Field(0.3, gt=0.0, le=1.0)
+    shadow_min_area: float = Field(0.10, ge=0.0, le=1.0, description="min share of the frame of one black region")
+    shadow_max_texture: float = Field(0.0035, gt=0.0)
+    chroma_suppress: bool = True  # smooth color noise where the local gain is high
+    chroma_gain_low: float = Field(2.0, ge=1.0)
+    chroma_gain_high: float = Field(5.0, ge=1.0)
+    chroma_radius: int = Field(8, ge=1)
     retinexformer_checkpoints: list[str] = ["retinexformer_fivek", "retinexformer_lolv2_real"]
     retinexformer_default_checkpoint: str = "retinexformer_fivek"
     zerodce_checkpoint: str = "zerodce_pp"
