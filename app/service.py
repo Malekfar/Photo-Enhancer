@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
+import cv2
 import numpy as np
 import torch
 
@@ -271,6 +272,42 @@ class ModelRegistry:
         return resolved, enhancer, info
 
 
+def available_memory_bytes() -> int | None:
+    """Free RAM for this process: min(MemAvailable, cgroup v2 limit - usage); None if unknown."""
+    vals: list[int] = []
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    vals.append(int(line.split()[1]) * 1024)
+                    break
+    except OSError:
+        pass
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            limit = f.read().strip()
+        if limit != "max":
+            with open("/sys/fs/cgroup/memory.current") as f:
+                vals.append(int(limit) - int(f.read().strip()))
+    except (OSError, ValueError):
+        pass
+    return max(0, min(vals)) if vals else None
+
+
+def memory_fit_scale(pixels: int, bytes_per_pixel: int, headroom: float, available: int | None) -> float:
+    """Linear scale factor (<= 1) so the working set of a `pixels`-sized image fits in free RAM."""
+    if available is None:
+        return 1.0
+    need = pixels * bytes_per_pixel
+    budget = available * headroom
+    return 1.0 if need <= budget else float(np.sqrt(budget / need))
+
+
+def _resize(img: np.ndarray, scale: float) -> np.ndarray:
+    h, w = img.shape[:2]
+    return cv2.resize(img, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+
+
 @dataclass
 class ProcessedImage:
     data: bytes
@@ -291,6 +328,17 @@ def process_image(registry: ModelRegistry, data: bytes, params: EnhanceParams) -
     decoded = decode_image(data, s.max_input_pixels)
     t_decode = (time.perf_counter() - t0) * 1000.0
 
+    h0, w0 = decoded.rgb.shape[:2]
+    scale = memory_fit_scale(h0 * w0, s.memory_bytes_per_pixel, s.memory_headroom, available_memory_bytes())
+    if scale < 1.0:
+        if h0 * w0 * scale * scale < 0.25e6:
+            raise BackendUnavailableError("Not enough free memory to process this image right now; retry later.")
+        decoded.rgb = _resize(decoded.rgb, scale)
+        if decoded.alpha is not None:
+            decoded.alpha = _resize(decoded.alpha, scale)
+        log.warning("downscaled %dx%d by %.2f to fit free memory", w0, h0, scale)
+    downscaled = {"from": [w0, h0], "to": [decoded.rgb.shape[1], decoded.rgb.shape[0]]} if scale < 1.0 else None
+
     t_auto0 = time.perf_counter()
     params, enhancer, auto_info = registry.resolve_params(decoded.rgb, params)
     t_auto = (time.perf_counter() - t_auto0) * 1000.0
@@ -304,6 +352,7 @@ def process_image(registry: ModelRegistry, data: bytes, params: EnhanceParams) -
     }
     if auto_info is not None:
         result.info["auto"] = auto_info
+    result.info["downscaled_for_memory"] = downscaled
 
     t1 = time.perf_counter()
     payload, media_type = encode_image(

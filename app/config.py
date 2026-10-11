@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     enhance_max_model_pixels: int = Field(
         250_000, ge=4096, description="Retinexformer runs at most at this many pixels (~1 GB RAM per 0.2 MP on CPU)."
     )
+    memory_bytes_per_pixel: int = Field(
+        110, ge=1, description="Estimated peak working memory per input pixel; larger inputs are downscaled to fit free RAM."
+    )
+    memory_headroom: float = Field(0.8, gt=0.0, le=1.0, description="Share of free RAM a single request may use.")
     large_image_mode: Literal["guided", "tile"] = "guided"
     tile_size: int = Field(512, ge=64)
     tile_overlap: int = Field(64, ge=8)

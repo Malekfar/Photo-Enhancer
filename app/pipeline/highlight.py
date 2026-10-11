@@ -62,8 +62,13 @@ def deep_shadow_mask(
 
 
 def blend_highlights(original: np.ndarray, enhanced: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    m = mask[..., None]
-    return (m * original + (1.0 - m) * enhanced).astype(np.float32)
+    """m * original + (1 - m) * enhanced, with a single full-size temporary."""
+    if not mask.any():
+        return enhanced
+    out = np.subtract(original, enhanced, dtype=np.float32)
+    out *= mask[..., None]
+    out += enhanced
+    return out
 
 
 def luminance_gain_transfer(
@@ -109,8 +114,11 @@ def soft_knee(rgb: np.ndarray, knee: float, white: float | None = None) -> tuple
     if white <= 1.0:
         return np.clip(rgb, 0.0, 1.0).astype(np.float32), 1.0
     v_new = shoulder(v, knee, white)
-    ratio = np.where(v > 1e-6, v_new / np.maximum(v, 1e-6), 1.0)
-    return np.clip(rgb * ratio[..., None], 0.0, 1.0).astype(np.float32), white
+    ratio = np.where(v > 1e-6, v_new / np.maximum(v, 1e-6), 1.0).astype(np.float32)
+    del v, v_new
+    out = rgb * ratio[..., None]
+    np.clip(out, 0.0, 1.0, out=out)
+    return out, white
 
 
 def clipped_fraction(rgb: np.ndarray) -> float:
@@ -173,8 +181,11 @@ def guard_highlights(
     if white <= 1.0:
         return np.clip(rgb, 0.0, 1.0).astype(np.float32), info
     v_new = shoulder(v, knee, white)
-    ratio = np.where(v > 1e-6, v_new / np.maximum(v, 1e-6), 1.0)
+    ratio = np.where(v > 1e-6, v_new / np.maximum(v, 1e-6), 1.0).astype(np.float32)
+    del v, v_new
     rolled = rgb * ratio[..., None]
-    m = mask[..., None]
-    out = m * np.clip(rgb, 0.0, 1.0) + (1.0 - m) * rolled
-    return np.clip(out, 0.0, 1.0).astype(np.float32), info
+    del ratio
+    if mask.any():
+        rolled = blend_highlights(np.clip(rgb, 0.0, 1.0), rolled, mask)
+    np.clip(rolled, 0.0, 1.0, out=rolled)
+    return rolled, info

@@ -39,15 +39,21 @@ def suppress_amplified_chroma(
     w = smoothstep(gain_low, gain_high, gain)
     if float(w.max()) < 1e-3:
         return out, 0.0
-    e = 1e-3
+    del num, den, gain, y_b
+    e = np.float32(1e-3)
     chroma = out / (y_o[..., None] + e)
-    smooth = np.stack([guided_filter(y_o, chroma[..., c], radius, eps) for c in range(3)], axis=-1)
-    smooth = np.clip(smooth, 0.0, None)
-    mixed = w[..., None] * smooth + (1.0 - w[..., None]) * chroma
-    res = mixed * (y_o[..., None] + e)
-    # keep luminance exact: rescale so Y(res) == Y(out)
-    res *= (y_o / np.maximum(luminance(res), 1e-6))[..., None]
-    return np.clip(res, 0.0, None).astype(np.float32), float(np.mean(w > 0.5))
+    res = np.empty_like(chroma)
+    for c in range(3):
+        res[..., c] = guided_filter(y_o, chroma[..., c], radius, eps)
+    np.maximum(res, 0.0, out=res)
+    res -= chroma  # res = w * smooth + (1 - w) * chroma
+    res *= w[..., None]
+    res += chroma
+    del chroma
+    res *= (y_o + e)[..., None]
+    res *= (y_o / np.maximum(luminance(res), 1e-6))[..., None]  # keep luminance exact
+    np.maximum(res, 0.0, out=res)
+    return res, float(np.mean(w > 0.5))
 
 
 def estimate_noise_sigma(rgb: np.ndarray) -> float:

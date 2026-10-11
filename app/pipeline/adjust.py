@@ -150,7 +150,7 @@ def _apply_masked(rgb: np.ndarray, mask: np.ndarray, gain: float, info: dict) ->
     info["gain"] = float(gain)
     if abs(gain - 1.0) < 1e-4:
         return rgb, info
-    return (rgb * _masked_gain(gain, mask)[..., None]).astype(np.float32), info
+    return rgb * _masked_gain(gain, mask).astype(np.float32)[..., None], info
 
 
 def unsharp_mask(rgb: np.ndarray, amount: float, sigma: float) -> np.ndarray:
@@ -170,4 +170,7 @@ def apply_strength(original: np.ndarray, processed: np.ndarray, strength: float)
         return processed
     if s <= 0.0:
         return original.copy()
-    return (original + s * (processed - original)).astype(np.float32)
+    out = np.subtract(processed, original, dtype=np.float32)
+    out *= s
+    out += original
+    return out

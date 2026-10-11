@@ -169,6 +169,7 @@ def run_pipeline(
         res = enhancer.enhance(model_input)
         enhanced = res.image
         info["enhancer"] = enhancer.describe() | res.info
+        del model_input, res
 
     # 4. highlight protection
     with timer("highlight"):
@@ -178,6 +179,7 @@ def run_pipeline(
         mask = highlight_mask(y0, params.highlight_low, params.highlight_high, cfg.mask_radius, cfg.mask_eps)
         out = blend_highlights(base, enhanced, mask)
         out = blend_highlights(base, out, shadow)  # keep intentional blacks (night sky) black
+        del enhanced
         info["highlight"] = {
             "enhanced_white_point": round(white, 4),
             "protected_pct": round(float(np.mean(mask > 0.5)) * 100.0, 3),
