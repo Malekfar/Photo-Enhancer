@@ -1,0 +1,68 @@
+# Pretrained weights manifest.
+#
+# Every URL below is taken from the official upstream repository:
+#   - Retinexformer: README "Download our models from ... Google Drive" ->
+#     https://drive.google.com/drive/folders/1ynK5hfQachzc8y96ZumhkPPDXzHJwaQV
+#     (per-file IDs resolved from that official folder).
+#   - Zero-DCE++: checkpoint committed in the official repo at
+#     Zero-DCE++/snapshots_Zero_DCE++/Epoch99.pth
+#   - SCUNet: official download script main_download_pretrained_models.py ->
+#     https://github.com/cszn/KAIR/releases/download/v1.0/<model_name>
+#
+# sha256: pinned checksum. Downloads/startup fail if the file does not match.
+#         An empty value means "not pinned yet": the file is only accepted when
+#         LLE_ALLOW_UNPINNED_WEIGHTS=true, and its hash is then recorded in
+#         <weights_dir>/pins.json (trust-on-first-use) and enforced afterwards.
+#         Paste the printed hash here to pin it permanently.
+# size:   expected size in bytes (checked before hashing).
+#
+# Check each upstream repository's license before commercial use.
+
+weights:
+  retinexformer_fivek:
+    backend: retinexformer
+    file: retinexformer/FiveK.pth
+    url: https://drive.usercontent.google.com/download?id=1oxvPPfhbOwZURTFenWnFp3H3Lakkqw3t&export=download&confirm=t
+    source: https://github.com/caiyuanhao1998/Retinexformer
+    sha256: 800f6a9281fe8d95daca3108f2b826d5a2adead09031e0e998d30a615286d9c1
+    size: 6478393
+    description: Retinexformer trained on MIT-Adobe FiveK (sRGB). Natural photo color.
+    arch:
+      in_channels: 3
+      out_channels: 3
+      n_feat: 40
+      stage: 1
+      num_blocks: [1, 2, 2]
+
+  retinexformer_lolv2_real:
+    backend: retinexformer
+    file: retinexformer/LOL_v2_real.pth
+    url: https://drive.usercontent.google.com/download?id=1tChRwTfqhs-A67QzG8a9Lrx7qKB3m89K&export=download&confirm=t
+    source: https://github.com/caiyuanhao1998/Retinexformer
+    sha256: 539bd16c4da6179e45616329f249c4672951b1045193428e1d042c50d4b65a0b
+    size: 6478393
+    description: Retinexformer trained on LOL-v2-real (real captured low/normal pairs).
+    arch:
+      in_channels: 3
+      out_channels: 3
+      n_feat: 40
+      stage: 1
+      num_blocks: [1, 2, 2]
+
+  zerodce_pp:
+    backend: zerodce
+    file: zerodce/Epoch99.pth
+    url: https://raw.githubusercontent.com/Li-Chongyi/Zero-DCE_extension/main/Zero-DCE%2B%2B/snapshots_Zero_DCE%2B%2B/Epoch99.pth
+    source: https://github.com/Li-Chongyi/Zero-DCE_extension
+    sha256: ca8855b90df9a80fa4195a831f33d3476b1964f787eb70602797c773067f3b84
+    size: 52395
+    description: Zero-DCE++ pretrained snapshot (curve estimation, structure preserving).
+
+  scunet_color_real_psnr:
+    backend: scunet
+    file: scunet/scunet_color_real_psnr.pth
+    url: https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth
+    source: https://github.com/cszn/SCUNet
+    sha256: ""
+    size: 57365390
+    description: SCUNet blind real-image color denoising, PSNR-oriented weights.

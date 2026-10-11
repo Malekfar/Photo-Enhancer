@@ -1,0 +1,95 @@
+# CPU:   docker compose up --build
+# GPU:   docker compose --profile gpu up --build enhancer-gpu
+# Tests: docker compose --profile test run --rm tests
+#
+# First start downloads the pinned weights into the "weights" volume; afterwards the
+# service runs fully offline (set LLE_AUTO_DOWNLOAD_WEIGHTS=false to forbid any download).
+
+x-env: &env
+  LLE_WEIGHTS_DIR: /weights
+  LLE_AUTO_DOWNLOAD_WEIGHTS: ${LLE_AUTO_DOWNLOAD_WEIGHTS:-true}
+  LLE_ALLOW_UNPINNED_WEIGHTS: ${LLE_ALLOW_UNPINNED_WEIGHTS:-false}
+  LLE_DEFAULT_METHOD: ${LLE_DEFAULT_METHOD:-auto}
+  LLE_RETINEXFORMER_DEFAULT_CHECKPOINT: ${LLE_RETINEXFORMER_DEFAULT_CHECKPOINT:-retinexformer_fivek}
+  LLE_MAX_INPUT_MEGAPIXELS: ${LLE_MAX_INPUT_MEGAPIXELS:-24}
+  LLE_REQUEST_TIMEOUT_S: ${LLE_REQUEST_TIMEOUT_S:-180}
+  LLE_LOG_LEVEL: ${LLE_LOG_LEVEL:-INFO}
+  LLE_LOG_JSON: ${LLE_LOG_JSON:-true}
+
+x-healthcheck: &healthcheck
+  test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9090/health', timeout=5).status == 200 else 1)"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 300s
+
+services:
+  enhancer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    image: lowlight-enhancer:cpu
+    environment:
+      <<: *env
+      LLE_DEVICE: cpu
+      LLE_MAX_CONCURRENCY: ${LLE_MAX_CONCURRENCY:-1}
+      LLE_TORCH_THREADS: ${LLE_TORCH_THREADS:-4}
+      OMP_NUM_THREADS: ${LLE_TORCH_THREADS:-4}
+    ports:
+      - "${LLE_PORT:-9090}:9090"
+    volumes:
+      - weights:/weights
+    healthcheck: *healthcheck
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${LLE_CPU_LIMIT:-4}"
+          memory: ${LLE_MEM_LIMIT:-6g}
+
+  enhancer-gpu:
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: lowlight-enhancer:gpu
+    environment:
+      <<: *env
+      LLE_DEVICE: cuda
+      LLE_MAX_CONCURRENCY: ${LLE_MAX_CONCURRENCY:-2}
+      LLE_ENHANCE_MAX_MODEL_PIXELS: ${LLE_ENHANCE_MAX_MODEL_PIXELS:-4000000}
+    ports:
+      - "${LLE_GPU_PORT:-9091}:9090"
+    volumes:
+      - weights:/weights
+    healthcheck: *healthcheck
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${LLE_CPU_LIMIT:-4}"
+          memory: ${LLE_MEM_LIMIT:-8g}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    image: lowlight-enhancer:test
+    environment:
+      LLE_WEIGHTS_DIR: /weights
+      LLE_ALLOW_UNPINNED_WEIGHTS: ${LLE_ALLOW_UNPINNED_WEIGHTS:-false}
+      LOL_V2_DIR: ${LOL_V2_DIR:-}
+    volumes:
+      - weights:/weights
+    command: ["sh", "-c", "python -m scripts.download_weights --prefetch-iqa; pytest -q -s"]
+
+volumes:
+  weights: {}

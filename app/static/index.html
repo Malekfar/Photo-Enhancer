@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Low-light enhancer — review</title>
+<style>
+  :root { font-family: system-ui, sans-serif; color: #1d1d1f; background: #f4f4f6; }
+  body { margin: 0; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  form { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; background: #fff; padding: 16px; border-radius: 10px; }
+  label { display: flex; flex-direction: column; font-size: 12px; gap: 4px; color: #555; }
+  input, select, button { font: inherit; font-size: 14px; }
+  button { grid-column: 1 / -1; padding: 10px; border: 0; border-radius: 8px; background: #1d1d1f; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: progress; }
+  #status { margin: 12px 0; font-size: 14px; min-height: 20px; }
+  #status.error { color: #b00020; }
+  .compare { position: relative; max-width: 100%; display: inline-block; user-select: none; background: repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 20px 20px; }
+  .compare img { display: block; max-width: 100%; max-height: 75vh; }
+  .compare .after { position: absolute; inset: 0; width: 100%; height: 100%; clip-path: inset(0 0 0 50%); }
+  .compare .bar { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: #fff; box-shadow: 0 0 3px #000; pointer-events: none; }
+  .compare .tag { position: absolute; top: 8px; padding: 2px 8px; font-size: 12px; background: rgba(0,0,0,.6); color: #fff; border-radius: 4px; }
+  #slider { width: 100%; max-width: 100%; margin-top: 8px; }
+  table { border-collapse: collapse; background: #fff; margin-top: 16px; font-size: 13px; }
+  td, th { border: 1px solid #ddd; padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  #viewer { display: none; margin-top: 16px; }
+  a#download { margin-left: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>Low-light product photo enhancer</h1>
+<form id="form">
+  <label>Image (JPEG/PNG/WebP)<input type="file" name="file" accept="image/jpeg,image/png,image/webp" required></label>
+  <label>Method
+    <select name="method" id="method">
+      <option value="auto">auto (recommended)</option>
+      <option value="retinexformer">retinexformer</option>
+      <option value="zerodce">zerodce</option>
+      <option value="classical">classical</option>
+    </select>
+  </label>
+  <label>Checkpoint (retinexformer)<select name="checkpoint" id="checkpoint"><option value="">default</option></select></label>
+  <label>Strength <span id="strengthv">auto</span>
+    <span><input type="checkbox" id="strengthauto" checked> auto</span>
+    <input type="range" name="strength" min="0" max="1" step="0.05" value="1" disabled></label>
+  <label>Denoise
+    <select name="denoise"><option value="">server default</option><option>auto</option><option>on</option><option>off</option></select>
+  </label>
+  <label>Highlight low<input type="number" name="highlight_low" min="0" max="1" step="0.01" placeholder="0.60"></label>
+  <label>Highlight high<input type="number" name="highlight_high" min="0" max="1" step="0.01" placeholder="0.90"></label>
+  <label>Preserve color
+    <select name="preserve_color"><option value="">auto</option><option value="true">true</option><option value="false">false</option></select>
+  </label>
+  <label>Sharpen
+    <select name="sharpen"><option value="">server default</option><option value="true">true</option><option value="false">false</option></select>
+  </label>
+  <label>Output format
+    <select name="output_format"><option value="">server default</option><option>jpeg</option><option>png</option><option>webp</option></select>
+  </label>
+  <label>IQA metrics (slower)
+    <select name="iqa"><option value="">server default</option><option value="true">true</option><option value="false">false</option></select>
+  </label>
+  <button id="go" type="submit">Enhance</button>
+</form>
+<div id="status"></div>
+<div id="viewer">
+  <div class="compare" id="compare">
+    <img id="before" alt="before">
+    <img id="after" class="after" alt="after">
+    <div class="bar" id="bar"></div>
+    <span class="tag" style="left:8px">before</span>
+    <span class="tag" style="right:8px">after</span>
+  </div>
+  <input type="range" id="slider" min="0" max="100" value="50">
+  <div><a id="download" download>download result</a></div>
+  <table id="metrics"></table>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const form = $("form");
+form.strength.addEventListener("input", (e) => $("strengthv").textContent = Number(e.target.value).toFixed(2));
+$("strengthauto").addEventListener("change", (e) => {
+  form.strength.disabled = e.target.checked;
+  $("strengthv").textContent = e.target.checked ? "auto" : Number(form.strength.value).toFixed(2);
+});
+
+fetch("/v1/models").then(r => r.json()).then(m => {
+  const rf = (m.enhancers || {}).retinexformer;
+  if (rf) for (const c of rf.checkpoints) $("checkpoint").add(new Option(c, c));
+  for (const opt of $("method").options) {
+    if (opt.value && opt.value !== "auto" && !(opt.value in (m.enhancers || {}))) { opt.disabled = true; opt.textContent += " (not loaded)"; }
+  }
+}).catch(() => {});
+
+const setSplit = (v) => {
+  $("after").style.clipPath = `inset(0 0 0 ${v}%)`;
+  $("bar").style.left = `${v}%`;
+};
+$("slider").addEventListener("input", (e) => setSplit(e.target.value));
+$("compare").addEventListener("pointermove", (e) => {
+  if (e.buttons !== 1) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const v = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
+  $("slider").value = v; setSplit(v);
+});
+
+const fmt = (v) => v === null || v === undefined ? "—" : (typeof v === "number" ? v.toFixed(4) : v);
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fd = new FormData();
+  for (const [k, v] of new FormData(form).entries()) {
+    if (k === "file" || v !== "") fd.append(k, v);
+  }
+  if (["zerodce", "classical"].includes($("method").value)) fd.delete("checkpoint");
+  $("go").disabled = true;
+  $("status").className = ""; $("status").textContent = "processing…";
+  const t0 = performance.now();
+  try {
+    const res = await fetch("/v1/enhance/json", { method: "POST", body: fd });
+    const body = await res.json();
+    if (!res.ok) throw new Error(`${body.error?.code}: ${body.error?.message}`);
+    const file = form.file.files[0];
+    $("before").src = URL.createObjectURL(file);
+    const url = `data:${body.media_type};base64,${body.image_base64}`;
+    $("after").src = url;
+    $("download").href = url;
+    $("download").download = file.name.replace(/\.[^.]+$/, "") + "_enhanced." + body.media_type.split("/")[1].replace("jpeg", "jpg");
+    const b = body.metrics.before, a = body.metrics.after;
+    const keys = Object.keys(a).filter(k => !k.endsWith("_error"));
+    $("metrics").innerHTML = "<tr><th>metric</th><th>before</th><th>after</th></tr>" +
+      keys.map(k => `<tr><td>${k}</td><td>${fmt(b[k])}</td><td>${fmt(a[k])}</td></tr>`).join("") +
+      `<tr><td>method</td><td colspan="2">${body.pipeline.enhancer.method} ${body.pipeline.enhancer.checkpoint || ""} (${body.pipeline.enhancer.mode})${body.pipeline.auto ? " — auto-selected" : ""}</td></tr>` +
+      `<tr><td>strength</td><td colspan="2">${fmt(body.pipeline.resolved?.strength)}${body.pipeline.auto?.strength ? " — auto-selected" : ""}</td></tr>` +
+      `<tr><td>preserve color</td><td colspan="2">${body.pipeline.resolved?.preserve_color ?? "—"}</td></tr>` +
+      `<tr><td>pre-exposure gain</td><td colspan="2">${fmt(body.pipeline.pre_exposure?.gain)}</td></tr>` +
+      `<tr><td>denoise</td><td colspan="2">${body.pipeline.denoise.applied ? body.pipeline.denoise.backend : "skipped"} (σ=${fmt(body.pipeline.denoise.noise_sigma)})</td></tr>` +
+      `<tr><td>server time (ms)</td><td colspan="2">${body.timings_ms.total}</td></tr>`;
+    $("viewer").style.display = "block";
+    setSplit($("slider").value);
+    $("status").textContent = `done in ${((performance.now() - t0) / 1000).toFixed(1)} s — ${body.width}×${body.height}`;
+  } catch (err) {
+    $("status").className = "error"; $("status").textContent = err.message;
+  } finally {
+    $("go").disabled = false;
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Runtime dependencies of pyiqa 0.1.16, installed explicitly because pyiqa itself is
+# installed with --no-deps: its declared deps include dev tooling (ruff, yapf,
+# pre-commit, pytest) and bitsandbytes, none of which NIQE/BRISQUE/LPIPS need.
+# facexlib is installed with --no-deps (it pulls the GUI build of OpenCV); these are
+# its remaining dependencies.
+filterpy
+numba
+accelerate
+addict
+datasets
+einops
+future
+openai-clip
+pandas
+requests
+scikit-image
+scipy
+sentencepiece
+tensorboard
+timm>=0.8
+tqdm
+transformers>=5.0

@@ -1,0 +1,10 @@
+# torch / torchvision are installed separately (CPU or CUDA index), see Dockerfiles.
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+numpy>=2.0,<3
+opencv-python-headless>=4.10,<5
+pillow>=10.4,<13
+einops==0.8.2
+pyyaml==6.0.3

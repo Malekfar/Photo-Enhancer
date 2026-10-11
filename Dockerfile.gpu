@@ -1,0 +1,73 @@
+# syntax=docker/dockerfile:1.7
+# CUDA image. Build:  docker build -f Dockerfile.gpu -t lowlight-enhancer:gpu .
+# Requires an NVIDIA driver supporting CUDA ${CUDA_VERSION} and nvidia-container-toolkit.
+# CUDA_VERSION and TORCH_CUDA must match (e.g. 12.8.1 <-> cu128, 12.6.3 <-> cu126).
+
+ARG CUDA_VERSION=12.8.1
+ARG UBUNTU_VERSION=22.04
+
+# ---------------------------------------------------------------- builder
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS builder
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
+ && add-apt-repository -y ppa:deadsnakes/ppa \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends python3.11 python3.11-venv python3.11-dev build-essential \
+ && rm -rf /var/lib/apt/lists/*
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+ARG TORCH_CUDA=cu128
+ARG TORCH_VERSION=2.14.1
+ARG TORCHVISION_VERSION=0.29.1
+RUN pip install --upgrade pip \
+ && pip install --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
+      torch==${TORCH_VERSION} torchvision==${TORCHVISION_VERSION}
+
+COPY requirements.txt requirements-iqa.txt ./
+RUN pip install -r requirements.txt \
+ && pip install -r requirements-iqa.txt "opencv-python-headless>=4.10,<5" \
+ && pip install --no-deps facexlib pyiqa==0.1.16 \
+ && (pip uninstall -y opencv-python opencv-contrib-python || true) \
+ && pip install --force-reinstall --no-deps "opencv-python-headless>=4.10,<5" \
+ && python -c "import torch, cv2, fastapi, pyiqa; print('torch', torch.__version__, 'cuda', torch.version.cuda)"
+
+# ---------------------------------------------------------------- runtime
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS final
+ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH \
+    HOME=/home/app \
+    LLE_WEIGHTS_DIR=/weights \
+    LLE_DEVICE=cuda \
+    TORCH_HOME=/weights/torch \
+    HF_HOME=/weights/hf
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
+ && add-apt-repository -y ppa:deadsnakes/ppa \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends python3.11 libgomp1 libglib2.0-0 \
+ && apt-get purge -y software-properties-common gpg-agent && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 10001 --shell /usr/sbin/nologin app \
+ && mkdir -p /weights && chown app:app /weights
+COPY --from=builder /opt/venv /opt/venv
+WORKDIR /srv
+COPY --chown=app:app weights.yaml pytest.ini ./
+COPY --chown=app:app app ./app
+COPY --chown=app:app scripts ./scripts
+RUN chmod +x scripts/entrypoint.sh
+
+ARG BAKE_WEIGHTS=0
+ARG ALLOW_UNPINNED_WEIGHTS=false
+USER app
+RUN if [ "$BAKE_WEIGHTS" = "1" ]; then \
+      LLE_ALLOW_UNPINNED_WEIGHTS=${ALLOW_UNPINNED_WEIGHTS} LLE_LOG_JSON=false LLE_DEVICE=cpu \
+      sh scripts/entrypoint.sh download-weights --prefetch-iqa; \
+    fi
+
+EXPOSE 9090
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9090/health', timeout=5).status == 200 else 1)"
+ENTRYPOINT ["/srv/scripts/entrypoint.sh"]
+CMD ["serve"]
