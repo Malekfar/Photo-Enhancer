@@ -205,15 +205,6 @@ class ModelRegistry:
             ae_white_target=s.ae_white_target,
             ae_bg_min_fraction=s.ae_bg_min_fraction,
             ae_white_max_input=s.ae_white_max_input,
-            shadow_protect=s.shadow_protect,
-            shadow_max_level=s.shadow_max_level,
-            shadow_rel_level=s.shadow_rel_level,
-            shadow_min_area=s.shadow_min_area,
-            shadow_max_texture=s.shadow_max_texture,
-            chroma_suppress=s.chroma_suppress,
-            chroma_gain_low=s.chroma_gain_low,
-            chroma_gain_high=s.chroma_gain_high,
-            chroma_radius=s.chroma_radius,
         )
 
     def auto_candidates(self, checkpoint: str | None, preserve_color: bool | None) -> list[tuple[Candidate, Enhancer]]:

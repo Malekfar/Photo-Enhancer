@@ -8,52 +8,10 @@ import cv2
 import numpy as np
 import torch
 
-from app.pipeline.color import guided_filter, luminance, smoothstep, subsample
+from app.pipeline.color import luminance, subsample
 from app.pipeline.tiling import tiled_apply, to_numpy, to_tensor
 
 _LAPLACE_KERNEL = np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], dtype=np.float32)
-
-
-def suppress_amplified_chroma(
-    base: np.ndarray,
-    out: np.ndarray,
-    *,
-    gain_low: float,
-    gain_high: float,
-    radius: int,
-    eps: float,
-) -> tuple[np.ndarray, float]:
-    """Smooth chromaticity where the enhancement applied a strong local gain.
-
-    A global noise estimate misses dark regions that are brightened far more than the
-    image as a whole; there, color noise and JPEG chroma blocks get amplified into blotches.
-    Chromaticity (rgb / Y) is smoothed edge-aware (guided by the output luminance) and
-    blended in with weight smoothstep(gain_low, gain_high, local gain). Luminance, and so
-    all structure, is unchanged. Returns the image and the share of pixels affected.
-    """
-    y_b = luminance(base)
-    y_o = luminance(out)
-    num = guided_filter(y_b, y_o, 4, 1e-4)
-    den = guided_filter(y_b, y_b, 4, 1e-4)
-    gain = np.maximum(num, 0.0) / (np.maximum(den, 0.0) + 2e-3)
-    w = smoothstep(gain_low, gain_high, gain)
-    if float(w.max()) < 1e-3:
-        return out, 0.0
-    del num, den, gain, y_b
-    e = np.float32(1e-3)
-    chroma = out / (y_o[..., None] + e)
-    res = np.empty_like(chroma)
-    for c in range(3):
-        res[..., c] = guided_filter(y_o, chroma[..., c], radius, eps)
-    np.maximum(res, 0.0, out=res)
-    res -= chroma  # res = w * smooth + (1 - w) * chroma
-    res *= w[..., None]
-    res += chroma
-    del chroma
-    res *= (y_o + e)[..., None]
-    res *= (y_o / np.maximum(luminance(res), 1e-6))[..., None]  # keep luminance exact
-    np.maximum(res, 0.0, out=res)
-    return res, float(np.mean(w > 0.5))
 
 
 def estimate_noise_sigma(rgb: np.ndarray) -> float:

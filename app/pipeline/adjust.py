@@ -7,31 +7,16 @@ import numpy as np
 from app.pipeline.color import linear_to_srgb, luminance, srgb_to_linear, subsample
 
 
-def _keep(exclude: np.ndarray | None, max_pixels: int) -> np.ndarray | None:
-    """Boolean selector of pixels used for exposure statistics (None = all)."""
-    if exclude is None:
-        return None
-    keep = subsample(exclude, max_pixels) < 0.5
-    return keep if keep.mean() >= 0.05 else None
-
-
-def pre_exposure(
-    rgb: np.ndarray, target: float | None, max_gain: float, knee: float, exclude: np.ndarray | None = None
-) -> tuple[np.ndarray, dict]:
+def pre_exposure(rgb: np.ndarray, target: float | None, max_gain: float, knee: float) -> tuple[np.ndarray, dict]:
     """Raise exposure in linear light so the model sees input in its trained range.
 
     Equivalent to a longer exposure: a global multiplication of scene radiance, so it adds
     no structure. The gain is chosen so the sRGB median luminance reaches `target`; values
     pushed above 1 are rolled off with the soft-knee instead of clipped. Never darkens.
-    Pixels with `exclude` >= 0.5 (intentional blacks) are left out of the statistics.
     """
     from app.pipeline.highlight import soft_knee  # noqa: PLC0415 - avoid import cycle
 
-    keep = _keep(exclude, 250_000)
     y_s = subsample(luminance(rgb), 250_000)
-    rgb_s = subsample(rgb, 250_000)
-    if keep is not None:
-        y_s, rgb_s = y_s[keep], rgb_s[keep]
     # 8-bit near-black frames can have a median of exactly 0; measure a brighter quantile then.
     q = 50.0 if float(np.median(y_s)) >= 1.0 / 255.0 else 75.0
     med = float(np.percentile(y_s, q))
@@ -39,7 +24,7 @@ def pre_exposure(
     if target is None or med >= target or med <= 0.0:
         return rgb, info
 
-    lin_s = srgb_to_linear(rgb_s)
+    lin_s = srgb_to_linear(subsample(rgb, 250_000))
 
     def median_at(g: float) -> float:
         return float(np.percentile(luminance(np.minimum(linear_to_srgb(lin_s * g), 1.0)), q))
@@ -87,7 +72,6 @@ def auto_exposure(
     allow_darken: bool,
     white_target: float | None = None,
     bg_min_fraction: float = 0.2,
-    exclude: np.ndarray | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Scale so the median luminance lands in [target_low, target_high].
 
@@ -98,13 +82,10 @@ def auto_exposure(
     The gain is spatially weighted by (1 - highlight mask), so protected highlights are
     never pushed. Values above 1 are rolled off by the final highlight guard. By default
     the image is never darkened (a white-background product shot has a high median by
-    design and must stay as is). Pixels with `exclude` >= 0.5 are left out of the median.
+    design and must stay as is).
     """
     y_s = subsample(luminance(rgb), 500_000)
     m_s = subsample(mask, 500_000)
-    keep = _keep(exclude, 500_000)
-    if keep is not None:
-        y_s, m_s = y_s[keep], m_s[keep]
     med = float(np.median(y_s))
     info = {"median_before": med, "gain": 1.0}
 

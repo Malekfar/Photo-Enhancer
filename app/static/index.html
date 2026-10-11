@@ -209,7 +209,6 @@ function render(body, seconds) {
     `<span class="chip">Model <b>${model}${ck}</b></span>`,
     `<span class="chip">Strength <b>${Math.round((r.strength ?? 1) * 100)}%</b></span>`,
     p.denoise?.applied ? `<span class="chip">Denoised</span>` : "",
-    p.highlight?.shadow_protected_pct > 0 ? `<span class="chip">Blacks kept</span>` : "",
     `<span class="chip"><b>${body.width}×${body.height}</b></span>`,
     `<span class="chip"><b>${seconds.toFixed(1)} s</b></span>`,
   ].join("");
